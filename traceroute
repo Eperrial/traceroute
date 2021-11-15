@@ -1,0 +1,108 @@
+#!/bin/bash
+
+		#Initialisation des variables primaires
+			#Verification du fichier cartes.dot sur le repertoire courant
+verifStr=$(ls -l ./ | awk '{ printf $9 "\n" }' | grep cartes.dot)
+			#liste des cibles utilisé pour construire la carte
+routes=("$@")
+			#liste des protocoles les plus susceptibles de renvoyer une réponse
+			#utilise les options de traceroute, -T pour TCP, -U pout UDP, -I pour ICMP, -p pour définir le port
+list=("-T -p 80" "-I" "-U -p 53" "-U -p 33434 " "-T -p 443" "-T -p 22" "-T -p 25" "-U -p 5060" "-U -p 1194" "fin")
+
+
+			#Vérification des fichiers et des arguments
+if [[ "$verifStr" == "cartes.dot" ]]
+then
+echo "$verifStr"
+echo "Le fichier carte.dot est déjà présent"
+echo "Le fichier va changer de nom par la variable 'RANDOM'"
+mv cartes.dot "$RANDOM"_cs.dot
+echo "Initalisation du traceroute"
+if [[ -z "$routes" ]]
+then 
+	echo "----------------------------------------------------------"
+	echo "Mettez en argument les sites que vous souhaitez traceroute"
+	echo "Ou changer la variable 'routes' dans le script............"
+	echo "----------------------------------------------------------"
+	echo ""
+	echo "fin du script : variable 'routes' incomplete"
+	exit
+fi
+echo "Script lancé"
+echo " "
+else
+echo "Le fichier cartes.dot n'est pas existant"
+echo "Verification des variables"
+if [[ -z "$routes" ]]
+then 
+
+	echo "----------------------------------------------------------"
+	echo "Mettez en argument les sites que vous souhaitez traceroute"
+	echo "Ou changer la variable 'routes' dans le script............"
+	echo "----------------------------------------------------------"
+	echo ""
+	echo "fin du script : variable 'routes' incomplete"
+	exit
+fi 
+echo "Lancement du script dans quelques secondes"
+echo "Script lancé"
+echo " "
+fi
+			#Création du cartes.dot avec l'ajout du début de l'initialisation du Xdot
+echo "graph G { node [shape=box];" >> cartes.dot
+			#première boucle qui fera un tour pour chaque éléments dans routes
+for rts in "${routes[@]}"
+do  ipcible=$(host "$rts" | sed -n '1p' | awk '{ printf $4 }')
+			#transformation de l’adresse symbolique en adresse I
+echo -n "Départ" >> cartes.dot
+echo "---------------------------------------------------------"
+echo "----------------Name : $rts-------------------------"
+echo "----------------Ip $ipcible-------------------------"
+echo "---------------------------------------------------------"
+			#boucle qui fera un tour pour chaque TTL de 1 à 36
+for (( TTL=1; TTL<=36; TTL++ ))
+do
+			#boucle qui fera un tour pour chaque éléments dans list
+	for proto in "${list[@]}"
+	do
+			#condition if pour vérifier si la liste des protocole est terminé et avoir un affichage spécial
+	 	if [ "$proto" = "fin" ]
+		then
+		echo "$TTL : * * *"
+		echo -n " -- \" $TTL : * * * \n $rts\"" >> cartes.dot
+		break
+		fi
+			#commande traceroute, options :
+			# -N -> nombres de sondes
+			# -n -> ne cherche pas à résoudre l'@ IP en nom
+			# -f -> définit le TTL de départ
+			# -m -> max ttl
+			# -w -> temps d'attente pour réponse entre 2 sondes (en secondes)
+			# $proto -> protocole dans la liste des protocoles
+			# $rts -> adresse dans liste routes
+	tr="traceroute -N 1 -n -f $TTL -m $TTL -w 2 -A $proto $rts"
+	res=$($tr | sed -n '2p' | awk '{ printf $2 " " $3}')
+	res2=$($tr | sed -n '2p' | awk '{ printf $2}')
+			#renvoie le résultat quand un résultat est trouvé.
+	if [ "$res2" != "*" ]
+        then
+	echo "$TTL : $res"
+	echo -n " -- \"$res\"" >> cartes.dot
+	break
+	fi
+	done
+			#renvoie le dernier résultat sous une autre forme pour signifier la fin
+	if [ "$ipcible" == "$res2" ]
+        then
+        echo "Fin : $rts"
+			#hache le nom de la cible en md5 pour avoir un résultat en hexadécimal
+			#on récupère les 6 premiers octets pour créer un couleur dans xdot sous la forme de 3 octets en hexadécimal
+color=$(echo -n "$rts" | md5sum | cut -c 1-6)
+echo "-- \"$rts\" [color=\"#$color\"];" >> cartes.dot
+break
+fi
+done
+done
+			#finalisation du fichier .dot
+echo " }" >> cartes.dot
+chmod 666 ./cartes.dot
